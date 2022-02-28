@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/plugins/aeos">
+    <file>icon.png</file>
+    <file>h++_icon.png</file>
+  </qresource>
+</RCC>
