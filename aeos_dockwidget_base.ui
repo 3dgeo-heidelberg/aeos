@@ -45,7 +45,7 @@
        <bool>true</bool>
       </property>
       <property name="currentIndex">
-       <number>1</number>
+       <number>0</number>
       </property>
       <widget class="QWidget" name="tab">
        <property name="sizePolicy">
@@ -465,14 +465,25 @@
            </widget>
           </item>
           <item>
-           <widget class="QLabel" name="platform_type_label">
-            <property name="text">
-             <string>TextLabel</string>
-            </property>
-            <property name="textFormat">
-             <enum>Qt::MarkdownText</enum>
-            </property>
-           </widget>
+           <layout class="QHBoxLayout" name="horizontalLayout_24">
+            <item>
+             <widget class="QLabel" name="platform_type_label">
+              <property name="text">
+               <string/>
+              </property>
+              <property name="textFormat">
+               <enum>Qt::MarkdownText</enum>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="on_ground">
+              <property name="text">
+               <string>onGround</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </item>
           <item>
            <widget class="QWidget" name="altitude_widget" native="true">

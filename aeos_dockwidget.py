@@ -728,8 +728,9 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 survey_file.write('        <leg>\n')
             if self.platform_type != 'multicopter':
                 survey_file.write('            <platformSettings  x="{x}" y="{y}" z="{z}" onGround="{gnd_flag}" '
-                              'movePerSec_m="{v}"/>\n'.format(x=point[0], y=point[1],
-                                                              z=point[2], gnd_flag="false" if not self.platform_type=='groundvehicle' else "true", v=self.flight_v.text()))
+                              'movePerSec_m="{v}"/>\n'.format(x=point[0], y=point[1], z=point[2],
+                                                              gnd_flag="true" if self.platform_type=='groundvehicle' else "true" if self.on_ground.isChecked() else "false",
+                                                              v=self.flight_v.text()))
             else:
                 survey_file.write('            <platformSettings  x="{x}" y="{y}" z="{z}" onGround="{gnd_flag}" '
                                   'movePerSec_m="{v}" {smooth_turn} {stop_and_turn} {slowdown_enabled}/>\n'.format(x=point[0], y=point[1], z=point[2], gnd_flag="false",
