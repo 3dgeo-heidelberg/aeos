@@ -137,7 +137,7 @@ class DataGenConfig(QtWidgets.QDialog, FORM_CLASS_3_popup):
                 self.scanner_selection_2.addItem(scanner.attrib['name'])
                 self.config_scanners[scanner.attrib['name']] = [scanner.attrib['id'], scanner.attrib['pulseFreqs_Hz'].split(','),
                                                             scanner.attrib['scanAngleMax_deg'], scanner.attrib['scanFreqMin_Hz'],
-                                                                scanner.attrib['scanFreqMax_Hz']                                                                ]
+                                                                scanner.attrib['scanFreqMax_Hz']]
 
             if self.scanner_selection_2.count() == 0:
                 # Give error message if no scanner options are found.
