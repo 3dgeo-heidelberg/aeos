@@ -1119,7 +1119,7 @@ class Worker(QObject):
                 os.path.join(self.helios_dir, 'output/'),
                 0,  # Num Threads
                 True,  # LAS v1.4 output
-                 False,  # LAS v1.0 output
+                 True,  # LAS v1.0 output
                 False,  # ZIP output
             )
 
