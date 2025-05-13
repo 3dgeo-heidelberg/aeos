@@ -10,6 +10,7 @@ Since the plugin is based on HELIOS++, which is available on conda-forge, QGIS m
 
 ```
 mamba create -n qgis-helios -c conda-forge python=3.12 qgis helios
+mamba activate qgis-helios
 ```
 
 In this environment, you can start the QGIS GUI with the command: `qgis`
