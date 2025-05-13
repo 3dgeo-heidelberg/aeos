@@ -8,8 +8,10 @@
                               -------------------
         begin                : 2021-11-18
         git sha              : $Format:%H$
-        copyright            : (C) 2021 by Mark Searle
-        email                : mark.searle@uni-heidelberg.de
+        copyright            : (C) 2021-2025 by Mark Searle, Hannah Weiser,
+                               3DGeo Research Group, Heidelberg University
+        email                : h.weiser@uni-heidelberg.de
+                               hoefle@uni-heidelberg.de
  ***************************************************************************/
 
 /***************************************************************************
