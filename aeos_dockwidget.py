@@ -8,8 +8,10 @@
                              -------------------
         begin                : 2021-11-18
         git sha              : $Format:%H$
-        copyright            : (C) 2021 by Mark Searle
-        email                : mark.searle@uni-heidelberg.de
+        copyright            : (C) 2021-2025 by Mark Searle, Hannah Weiser,
+                               3DGeo Research Group, Heidelberg University
+        email                : h.weiser@uni-heidelberg.de
+                               hoefle@uni-heidelberg.de
  ***************************************************************************/
 
 /***************************************************************************
@@ -29,7 +31,7 @@ import traceback
 import time
 
 from qgis.PyQt import QtGui, QtWidgets, uic
-from qgis.PyQt.QtCore import pyqtSignal, QUrl, QThread, QObject, Qt, QVariant
+from qgis.PyQt.QtCore import pyqtSignal, QUrl, QThread, QObject, Qt, QMetaType
 from qgis.core import *
 from qgis.gui import QgsFileWidget
 from qgis.utils import iface
@@ -41,7 +43,7 @@ FORM_CLASS_2_popup, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'scanner_config.ui'))
 FORM_CLASS_3_popup, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'data_gen_config.ui'))
-
+CONDA_PREFIX = os.environ.get('CONDA_PREFIX')
 
 def warning_box(title, info_text, main_text, cancel_button=1):
     def msgbtn(i):
@@ -153,7 +155,7 @@ class DataGenConfig(QtWidgets.QDialog, FORM_CLASS_3_popup):
 
 class DirectoryDialogue(QtWidgets.QDialog):
     """
-    Class for Dialogue that is used to configure HELIOS path as project variable.
+    Class for Dialogue that is used to configure HELIOS++ path as project variable.
     """
     def __init__(self, message_text):
         super().__init__()
@@ -163,11 +165,16 @@ class DirectoryDialogue(QtWidgets.QDialog):
         QBtn = QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
 
         self.buttonBox = QtWidgets.QDialogButtonBox(QBtn)
+
+        # Input field for HELIOS++ assets directory
         self.input_dir = QgsFileWidget()
         self.input_dir.setStorageMode(QgsFileWidget.StorageMode(1))
+        self.input_dir.setDialogTitle("Select HELIOS++ Asset Directory")
         self.buttonBox.accepted.connect(self.ok_click)
         self.buttonBox.rejected.connect(self.cancel_click)
         self.layout = QtWidgets.QVBoxLayout()
+        message = QtWidgets.QLabel("In order to run Aeos, you must first configure your "
+                                   "HELIOS++ directory:\n")
 
         message = QtWidgets.QLabel(message_text)
 
@@ -188,7 +195,6 @@ class DirectoryDialogue(QtWidgets.QDialog):
             # If an input was given, set the directory as project variable.
             proj = QgsProject.instance()
             QgsExpressionContextUtils.setProjectVariable(proj, 'helios_directory', self.input_dir.filePath())
-            print("Helios Directory has been set to: " + self.input_dir.filePath())
             self.accept()
             # return 1
 
@@ -233,7 +239,7 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         proj = QgsProject.instance()
         self.helios_dir = QgsExpressionContextUtils.projectScope(proj).variable('helios_directory')
         proj = None
-        self.helios_dir_label.setText("""<font size="3">[{}]</font>""".format(self.helios_dir))
+        self.helios_dir_label.setText(f"""<font size="3">[{self.helios_dir}]</font>""")
 
         # Make Error msgs invisible
         self.layer_error_popup.setHidden(True)
@@ -272,9 +278,11 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.scene_input.fileChanged.connect(self.parse_scene)
 
         # Set default values for platform and scanner.
-        self.platform_input.setFilePath(os.path.join(self.helios_dir, 'data\platforms.xml'))
+        # self.platform_input.setHidden(True)
+        # self.scanner_input.setHidden(True)
+        self.platform_input.setFilePath(os.path.join(CONDA_PREFIX, 'Lib/site-packages/pyhelios/data/platforms.xml'))
         self.parse_platform()
-        self.scanner_input.setFilePath(os.path.join(self.helios_dir, 'data\scanners_als.xml'))
+        self.scanner_input.setFilePath(os.path.join(CONDA_PREFIX, 'Lib/site-packages/pyhelios/data/scanners_als.xml'))
         self.parse_scanner()
 
         # Hide ULS options in tab 2.
@@ -311,7 +319,7 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             # If a new dir was selected, update class attribute and label.
             proj = QgsProject.instance()
             self.helios_dir = QgsExpressionContextUtils.projectScope(proj).variable('helios_directory')
-            self.helios_dir_label.setText("""<font size="3">[{}]</font>""".format(self.helios_dir))
+            self.helios_dir_label.setText(f"""<font size="3">[{self.helios_dir}]</font>""")
 
     def visualize_survey(self):
         """Function that takes a survey file and uses the legs to create a vector layer and load it into QGIS."""
@@ -333,30 +341,42 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Parse survey file.
         survey_root = ET.parse(self.survey_exec_path.filePath()).getroot()
         survey = survey_root.find('survey')
+        platform_template = survey_root.find('platformSettings')
         for leg in survey.findall('leg'):
             # Iterate over each leg, getting platform and scanner settings of each.
             platform_settings = leg.find('platformSettings')
             scanner_settings = leg.find('scannerSettings')
-
+            # some values may be shared for all legs and configured in the platformSettings template
+            try:
+                z = float(platform_settings.attrib['z'])
+            except KeyError:
+                z = float(platform_template.attrib['z'])
+            try:
+                active_flag = scanner_settings.attrib['active']
+            except KeyError:
+                try:
+                    active_flag = platform_template.attrib['active']
+                except KeyError:
+                    active_flag = 'true'
             # Append values for leg: [QGIS point geometry from x and y vals, z val, leg number, 'active' flag]
-            trajectory.append([QgsPoint(float(platform_settings.attrib['x']), float(platform_settings.attrib['y'])),
-                               platform_settings.attrib['z'], len(trajectory), scanner_settings.attrib['active']])
+            trajectory.append([QgsPoint(float(platform_settings.attrib['x']), float(platform_settings.attrib['y'])), z,
+                               len(trajectory), active_flag])
 
         # Create temporary vector layer to fill with features.
         if "tls" in survey_root.find('survey').attrib['scanner']:
             # For TLS surveys, create a multipoint layer.
-            vector_layer = QgsVectorLayer("MultiPoint?crs=epsg:32632", "{}".format(survey_name + '-trajectory'),
+            vector_layer = QgsVectorLayer("MultiPoint?crs=epsg:32632", f"{survey_name + '-trajectory'}",
                                           "memory")
         else:
             # For ALS, ULS surveys, create linestring layer.
-            vector_layer = QgsVectorLayer("LineString?crs=epsg:32632", "{}".format(survey_name + '-trajectory'),
+            vector_layer = QgsVectorLayer("LineString?crs=epsg:32632", f"{survey_name + '-trajectory'}",
                                           "memory")
 
         # Attributes are id, leg_number, z_value.
         pr = vector_layer.dataProvider()
-        pr.addAttributes([QgsField("id", QVariant.Int),
-                          QgsField("leg_number", QVariant.Int),
-                          QgsField("z_value", QVariant.Double)])
+        pr.addAttributes([QgsField("id", QMetaType.Type.Int),
+                          QgsField("leg_number", QMetaType.Type.Int),
+                          QgsField("z_value", QMetaType.Type.Double)])
         vector_layer.updateFields()
 
         # List for storing each individual feature, corresponding to one leg in simulation.
@@ -606,10 +626,10 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         survey_file.write('<document>\n')
         try:
             # Error will occur here if no scanner config was selected.
-            survey_file.write('    <survey name="{survey}" platform="{platform}" scanner="{scanner}" scene="{scene}">\n'
-                          .format(survey=self.survey_input.text(), platform=self.platform_input.filePath() + '#' + self.platforms[self.platform_selection.currentText()][0],
-                                  scanner=self.scanner_input.filePath() + '#' + self.scanners[self.scanner_selection.currentText()],
-                                  scene=self.scene_input.filePath() + '#' + self.scenes[self.scene_selection.currentText()]))
+            survey_file.write(f'    <survey name="{self.survey_input.text()}" '
+                              f'platform="{self.platform_input.filePath() + '#' + self.platform_selection.currentText()}" '
+                              f'scanner="{self.scanner_input.filePath() + '#' + self.scanner_selection.currentText()}" '
+                              f'scene="{self.scene_input.filePath() + '#' + self.scene_selection.currentText()}">\n')
         except IndexError:
             # In case one of the scanner config fields is empty:
             self.scanner_config_error.setHidden(False)
@@ -678,8 +698,8 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.flight_alt = float(self.flight_z.text())
             for i in range(len(all_points)):
                 if float(gnd_raster.dataProvider().sample(QgsPointXY(all_points[i][0], all_points[i][1]), 1)[1]) == False:
-                    QgsMessageLog.logMessage("WARNING: Raster at point x={}, y={} returns z value nan. This entire geometry "
-                                             "will not be checked for altitude..".format(all_points[i][0], all_points[i][1]))
+                    QgsMessageLog.logMessage(f"Raster at point x={all_points[i][0]}, y={all_points[i][1]} returns z value nan. This entire geometry "
+                                             "will not be checked for altitude.", Qgis.Info)
                     continue
 
                 # Only if leg is active..:
@@ -695,15 +715,15 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     current_alt = all_points[i][2]
                     # Distance to be moved between each altitude check.
                     move_per_step = [(all_points[i+1][0]-all_points[i][0])/frequency, (all_points[i+1][1]-all_points[i][1])/frequency]
-                    print('{}-{}/{}={}'.format(all_points[i][0], all_points[i+1][0], frequency, move_per_step[0]))
-                    print('{}-{}/{}={}'.format(all_points[i][1], all_points[i+1][1], frequency, move_per_step[1]))
+                    print(f'{all_points[i][0]}-{all_points[i+1][0]}/{frequency}={move_per_step[0]}')
+                    print(f'{all_points[i][1]}-{all_points[i+1][1]}/{frequency}={move_per_step[1]}')
                     # Perform altitude checks, update altitude value if necessary.
                     for j in range(frequency):
                         current_gnd_z = gnd_raster.dataProvider().sample(QgsPointXY(current_loc[0], current_loc[1]), 1)[0]
                         distance_to_optimal = current_gnd_z+self.flight_alt-current_alt
                         if abs(distance_to_optimal)>float(self.flight_alt_range.text()):
                             # If altitude is out of range:
-                            print('new alt: {}'.format(current_gnd_z+self.flight_alt))
+                            print(f'new alt: {current_gnd_z+self.flight_alt}')
                             # Update value in survey leg.
                             all_points_corrected.append([current_loc[0], current_loc[1], current_gnd_z+self.flight_alt, "true", all_points[i][4]])
                             # Update value for upcoming checks.
@@ -723,26 +743,20 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Write legs to file.
         for point in all_points_corrected:
             if self.stripid_flag.isChecked():
-                survey_file.write('        <leg stripId="{}">\n'.format(point[4]))
+                survey_file.write(f'        <leg stripId="{point[4]}">\n')
             else:
                 survey_file.write('        <leg>\n')
             if self.platform_type != 'multicopter':
-                survey_file.write('            <platformSettings  x="{x}" y="{y}" z="{z}" onGround="{gnd_flag}" '
-                              'movePerSec_m="{v}"/>\n'.format(x=point[0], y=point[1], z=point[2],
-                                                              gnd_flag="true" if self.platform_type=='groundvehicle' else "true" if self.on_ground.isChecked() else "false",
-                                                              v=self.flight_v.text()))
+                survey_file.write(f'            <platformSettings  x="{point[0]}" y="{point[1]}" z="{point[2]}" onGround="{"true" if self.platform_type=="groundvehicle" else "true" if self.on_ground.isChecked() else "false"}", '
+                                  f'movePerSec_m="{self.flight_v.text()}"/>\n')
             else:
-                survey_file.write('            <platformSettings  x="{x}" y="{y}" z="{z}" onGround="{gnd_flag}" '
-                                  'movePerSec_m="{v}" {smooth_turn} {stop_and_turn} {slowdown_enabled}/>\n'.format(x=point[0], y=point[1], z=point[2], gnd_flag="false",
-                                                                  v=self.flight_v.text(), smooth_turn="{}".format('smoothTurn="true"') if self.smooth_turn.isChecked() else "",
-                                                                                                                   stop_and_turn="{}".format('stopAndTurn="true"') if self.stop_turn.isChecked() else "",
-                                                                                                                   slowdown_enabled="{}".format('slowdownEnabled="false"') if self.slowdown_flag.isChecked() else ""))
-            survey_file.write('            <scannerSettings  active="{active_flag}" pulseFreq_hz="{pulse_freq}" scanAngle_deg="{scan_angle}" '
-                              'scanFreq_hz="{scan_freq}" headRotatePerSec_deg="0.0" headRotateStart_deg="0.0" '
-                              'headRotateStop_deg="0.0" trajectoryTimeInterval_s="0.067"/>\n'.format(active_flag=point[3],
-                                                                                                     pulse_freq=self.pulse_freq.text(),
-                                                                                                     scan_angle=self.scan_angle.text(),
-                                                                                                     scan_freq=self.scan_freq.text()))
+                survey_file.write(f'            <platformSettings  x="{point[0]}" y="{point[1]}" z="{point[2]}" onGround="false" '
+                                  f'movePerSec_m="{self.flight_v.text()}" {("smoothTurn=\"true\" " if self.smooth_turn.isChecked() else "")}'
+                                    f'{("stopAndTurn=\"true\" " if self.stop_turn.isChecked() else "")}'
+                                    f'{("slowdownEnabled=\"false\" " if self.slowdown_flag.isChecked() else "")}/>\n')    
+            survey_file.write(f'            <scannerSettings  active="{point[3]}" pulseFreq_hz="{self.pulse_freq.text()}" scanAngle_deg="{self.scan_angle.text()}" '
+                              f'scanFreq_hz="{self.scan_freq.text()}" headRotatePerSec_deg="0.0" headRotateStart_deg="0.0" '
+                              'headRotateStop_deg="0.0" trajectoryTimeInterval_s="0.067"/>\n')
             survey_file.write('        </leg>\n')
 
         survey_file.write('    </survey>\n</document>')
@@ -750,8 +764,7 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Display message for successful survey creation for user.
         encoded_path = bytearray(QUrl.fromLocalFile(survey_destination).toEncoded()).decode()
-        self.final_msg.setText('Survey file successfully created: <a href="{}">{}</a>'.format(
-            encoded_path, survey_destination))
+        self.final_msg.setText(f'Survey file successfully created: <a href="{encoded_path}">{survey_destination}</a>')
         self.final_msg.setHidden(False)
 
         # Set survey execution path to path of newly created survey.
@@ -774,15 +787,21 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.survey_path_error.setHidden(False)
             return 0
 
+        # Get previous filepath and change to helios asset path. This is reversed once worker is finished!!
         self.previous_path = os.getcwd()
         os.chdir(self.helios_dir)
 
-        # Add helios path to python path.
-        if not self.helios_dir in sys.path:
-            sys.path.append(self.helios_dir)
 
-        # Create instance of worker that runs sim on another thread.
-        self.worker = Worker(self.helios_dir, self.survey_exec_path.filePath())
+        try:
+            # check if pyhelios can be imported
+            import pyhelios
+
+            # Create instance of worker that runs sim on another thread.
+            self.worker = Worker(self.helios_dir, self.survey_exec_path.filePath())
+        except ImportError as err:
+            # If pyhelios cannot be imported, inform the user about that
+            QgsMessageLog.logMessage('Import Error! It seems like you do not have pyhelios installed.\n'
+                                     'Install qgis and helios into a conda environment and start qgis from there to use this plugin.\n')
 
         # New thread, move worker to thread.
         self.thread = QThread(self)
@@ -805,7 +824,7 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.time_counter.setHidden(False)
 
     def set_runtime(self, runtime):
-        self.time_counter.setText('Time elapsed: {} minute(s) and {} second(s).'.format(int(runtime)//60, int(runtime)%60))
+        self.time_counter.setText(f'Time elapsed: {int(runtime)//60} minute(s) and {int(runtime)%60} second(s).')
 
     def worker_finished(self, ret):
         """Function that runs once simulation has finished."""
@@ -826,33 +845,32 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             survey_name = survey_root.find('survey').attrib['name']
 
             # Find survey output directory (to inform the user).
-            output_dir = os.path.join(self.helios_dir, "output/Survey Playback/", survey_name)
+            output_dir = os.path.join(self.helios_dir, "output", survey_name)
             # Find latest folder in survey output directory
             all_survey_outputs = [os.path.join(output_dir, d) for d in os.listdir(output_dir) if
                                   os.path.isdir(os.path.join(output_dir, d))]
-            latest_survey_output = os.path.join(max(all_survey_outputs, key=os.path.getmtime), 'points/')
+            latest_survey_output = os.path.join(max(all_survey_outputs, key=os.path.getmtime))
 
             # Load output point cloud into QGIS if corresponding box was checked.
             if self.load_output_check.isChecked():
                 # Iterate over output files and load all .las files into qgis
                 for filename in os.listdir(latest_survey_output):
-                    if filename.endswith(".las"):
+                    if filename.endswith(".las") or filename.endswith(".laz"):
                         iface.addPointCloudLayer(os.path.join(latest_survey_output, filename),
                                                             survey_name + '-' + os.path.basename(filename).split('.')[0],
                                                             "pdal")
             # Report the result and output dir to user.
             encoded_path = bytearray(
                 QUrl.fromLocalFile(latest_survey_output).toEncoded()).decode()
-            self.sim_final_output.setText('Simulation complete. Output is located at: <a href="{}">{}</a>'
-                                          .format(encoded_path, latest_survey_output))
+            self.sim_final_output.setText(f'Simulation complete. Output is located at: <a href="{encoded_path}">{latest_survey_output}</a>')
             self.sim_final_output.setHidden(False)
 
         elif ret == 2:
-            print('Simulation cancelled.')
+            QgsMessageLog.logMessage('Simulation cancelled.')
 
         else:
             # Notify the user that something went wrong.
-            print('Something went wrong! See the message log for more information.')
+            QgsMessageLog.logMessage('Something went wrong! See the message log for more information.')
 
         # Change back to original path.
         os.chdir(self.previous_path)
@@ -867,14 +885,14 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if ret==0:
             pass
         elif ret==2:
-            print('Process cancelled.')
+            QgsMessageLog.logMessage('Process cancelled.')
         else:
             # Notify the user that something went wrong.
-            print('Something went wrong! See the message log for more information.')
+            QgsMessageLog.logMessage('Something went wrong! See the message log for more information.')
 
     def worker_error(self, e, exception_string):
         """Runs when worker throws an error."""
-        QgsMessageLog.logMessage('Worker thread raised an exception: \n{}\n'.format(exception_string))
+        QgsMessageLog.logMessage(f'Worker thread raised an exception: {exception_string}\n')
         # Change back to original path.
         os.chdir(self.previous_path)
 
@@ -904,9 +922,9 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             sys.path.append(self.helios_dir)
 
         for sim_count in range(1, int(self.config_window.num_iterations.text())+1):
-            survey_file_name = '{}{}.xml'.format(self.data_gen_name.text(), sim_count)  # i
+            survey_file_name = f'{self.data_gen_name.text()}{sim_count}.xml'  # i
 
-            self.data_gen_status.setText('Generating Survey no. {}: {}'.format(sim_count, os.path.join(os.getcwd(), survey_file_name)))
+            self.data_gen_status.setText(f'Generating Survey no. {sim_count}: {os.path.join(os.getcwd(), survey_file_name)}')
             self.data_gen_status.setHidden(False)
 
             scene = self.config_window.scene_selection_2.currentText()
@@ -929,8 +947,7 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             survey_file = open(survey_file_name, "w")
             survey_file.write('<?xml version="1.0"?>\n')
             survey_file.write('<document>\n')
-            survey_file.write('    <survey name="{survey}" platform="{platform}" scanner="{scanner}" scene="{scene}">\n'
-                              .format(survey=survey_name, platform=platform, scanner=scanner_path, scene=scene))
+            survey_file.write(f'    <survey name="{survey_name}" platform="{platform}" scanner="{scanner_path}" scene="{scene}">\n')
 
             layer = random.choice(self.trajectory_box.checkedItems())
             layer = QgsProject.instance().mapLayersByName(layer)[0]
@@ -992,8 +1009,8 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     if float(gnd_raster.dataProvider().sample(QgsPointXY(all_points[i][0], all_points[i][1]), 1)[
                                  1]) == False:
                         QgsMessageLog.logMessage(
-                            "WARNING: Raster at point x={}, y={} returns z value nan. This entire geometry "
-                            "will not be checked for altitude..".format(all_points[i][0], all_points[i][1]))
+                            f"WARNING: Raster at point x={all_points[i][0]}, y={all_points[i][1]} returns z value nan. This entire geometry "
+                            "will not be checked for altitude..")
                         continue
 
                     # Only if leg is active..:
@@ -1013,17 +1030,15 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                         # Distance to be moved between each altitude check.
                         move_per_step = [(all_points[i + 1][0] - all_points[i][0]) / frequency,
                                          (all_points[i + 1][1] - all_points[i][1]) / frequency]
-                        print('{}-{}/{}={}'.format(all_points[i][0], all_points[i + 1][0], frequency,
-                                                   move_per_step[0]))
-                        print('{}-{}/{}={}'.format(all_points[i][1], all_points[i + 1][1], frequency,
-                                                   move_per_step[1]))
+                        print(f'{all_points[i][0]}-{all_points[i + 1][0]}/{frequency}={move_per_step[0]}')
+                        print(f'{all_points[i][1]}-{all_points[i + 1][1]}/{frequency}={move_per_step[1]}')
                         # Perform altitude checks, update altitude value if necessary.
                         for j in range(frequency):
                             current_gnd_z = gnd_raster.dataProvider().sample(QgsPointXY(current_loc[0], current_loc[1]), 1)[0]
                             distance_to_optimal = current_gnd_z + self.flight_alt - current_alt
                             if abs(distance_to_optimal) > float(self.config_window.altitude_deviation.text()):
                                 # If altitude is out of range:
-                                print('new alt: {}'.format(current_gnd_z + self.flight_alt))
+                                print(f'new alt: {current_gnd_z + self.flight_alt}')
                                 # Update value in survey leg.
                                 all_points_corrected.append(
                                     [current_loc[0], current_loc[1], current_gnd_z + self.flight_alt, "true",
@@ -1047,19 +1062,13 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             for point in all_points_corrected:
                 survey_file.write('        <leg>\n')
                 survey_file.write(
-                    '            <platformSettings  x="{x}" y="{y}" z="{z}" onGround="{gnd_flag}" '
-                    'movePerSec_m="{v}"/>\n'.format(x=point[0], y=point[1],
-                                                    z=point[2],
-                                                    gnd_flag="false",
-                                                    v=speed))
+                    f'            <platformSettings  x="{point[0]}" y="{point[1]}" z="{point[2]}" onGround="false" '
+                    f'movePerSec_m="{speed}"/>\n')
 
                 survey_file.write(
-                    '            <scannerSettings  active="{active_flag}" pulseFreq_hz="{pulse_freq}" scanAngle_deg="{scan_angle}" '
-                    'scanFreq_hz="{scan_freq}" headRotatePerSec_deg="0.0" headRotateStart_deg="0.0" '
-                    'headRotateStop_deg="0.0" trajectoryTimeInterval_s="0.067"/>\n'.format(active_flag=point[3],
-                                                                                           pulse_freq=pulse_freq,
-                                                                                           scan_angle=scan_angle,
-                                                                                           scan_freq=scan_freq))
+                    f'           <scannerSettings  active="{point[3]}" pulseFreq_hz="{pulse_freq}" scanAngle_deg="{scan_angle}" '
+                    f'scanFreq_hz="{scan_freq}" headRotatePerSec_deg="0.0" headRotateStart_deg="0.0" '
+                    'headRotateStop_deg="0.0" trajectoryTimeInterval_s="0.067"/>\n')
                 survey_file.write('        </leg>\n')
 
             survey_file.write('    </survey>\n</document>')
@@ -1081,25 +1090,25 @@ class AeosDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             self.thread.started.connect(self.worker.run)
             self.sim_cancel.clicked.connect(self.kill_worker)
 
-            self.data_gen_status.setText('Running Survey no. {}...'.format(sim_count))
+            self.data_gen_status.setText(f'Running Survey no. {sim_count}...')
 
             # Start worker
             self.thread.start()
 
         os.chdir(self.previous_path)
-        self.data_gen_status.setText('Data generation complete. All {} sims. run.'.format(i))
+        self.data_gen_status.setText(f'Data generation complete. All {i} sims. run.')
 
 
 class Worker(QObject):
     """
     Worker class that executes a HELIOS++ simulation.
     """
-    def __init__(self, helios_dir, survey_dir):
+    def __init__(self, helios_dir, survey_file):
         """Initiate worker. Input saved to attributes."""
         QObject.__init__(self)
         self.sim = None
         self.helios_dir = helios_dir
-        self.survey_dir = survey_dir
+        self.survey_file = survey_file
         self.killed = False
 
     def run(self):
@@ -1112,26 +1121,17 @@ class Worker(QObject):
             # Logging verbosity
             pyhelios.loggingVerbose2()
 
-            # Initiate a simulation. Parameters: (surveyPath, assetsPath, outputPath, ...).
-            self.sim = pyhelios.Simulation(
-                self.survey_dir,
-                os.path.join(self.helios_dir, 'assets/'),
-                os.path.join(self.helios_dir, 'output/'),
-                0,  # Num Threads
-                True,  # LAS v1.4 output
-                 True,  # LAS v1.0 output
-                False,  # ZIP output
+            # Initiate a simulation
+            self.simB = pyhelios.SimulationBuilder(
+                self.survey_file,
+                'assets/',
+                'output/'
             )
+            self.simB.setNumThreads(0)
+            self.simB.setLasOutput(True)
+            self.simB.setZipOutput(True)
 
-            # Load the survey file.
-            self.sim.loadSurvey(
-                True,  # Leg Noise Disabled FLAG
-                False,  # Rebuild Scene FLAG
-                False,  # Write Waveform FLAG
-                False,  # Calculate Echowidth FLAG
-                False,  # Full Wave Noise FLAG
-                True  # Platform Noise Disabled FLAG
-            )
+            self.sim = self.simB.build()
 
             start = time.time()
             # Start simulation.
@@ -1154,9 +1154,9 @@ class Worker(QObject):
             if not self.killed:
                 ret = 0
 
-        except Exception as err:
-            # If error occurs in sim construction emit the error.
-            self.error.emit(err, traceback.format_exc())
+        except ImportError as err:
+            # If pyhelios cannot be imported, inform the user about that
+            self.error.emit(err, "pyhelios could not be imported. Please check your HELIOS++ installation.")
         # Emit ret to 'finished' signal. This is connected to and starts the 'worker_finished' method of main window.
         self.finished.emit(ret)
 

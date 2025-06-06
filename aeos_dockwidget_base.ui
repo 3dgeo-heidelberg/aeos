@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>567</width>
+    <width>840</width>
     <height>897</height>
    </rect>
   </property>
@@ -45,7 +45,7 @@
        <bool>true</bool>
       </property>
       <property name="currentIndex">
-       <number>0</number>
+       <number>2</number>
       </property>
       <widget class="QWidget" name="tab">
        <property name="sizePolicy">
@@ -1032,7 +1032,7 @@
           <item>
            <widget class="QCheckBox" name="stripid_flag">
             <property name="text">
-             <string>One outfile per feature</string>
+             <string>One output file per feature</string>
             </property>
            </widget>
           </item>
